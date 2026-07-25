@@ -1,0 +1,67 @@
+{
+  "title": "kb7 Bottleneck Demo",
+  "uid": "kb7-bottleneck-demo",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Requests/sec (by uri, status)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"kb7-test-demo\"}[1m])) by (uri, status)",
+          "legendFormat": "{{uri}} [{{status}}]"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP p95 Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"kb7-test-demo\"}[1m])) by (le, uri))",
+          "legendFormat": "{{uri}} p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HikariCP Active / Pending / Max Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{application=\"kb7-test-demo\"}",
+          "legendFormat": "active"
+        },
+        {
+          "expr": "hikaricp_connections_pending{application=\"kb7-test-demo\"}",
+          "legendFormat": "pending (waiting for a connection)"
+        },
+        {
+          "expr": "hikaricp_connections_max{application=\"kb7-test-demo\"}",
+          "legendFormat": "max"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "JVM Heap Used",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{application=\"kb7-test-demo\", area=\"heap\"})",
+          "legendFormat": "heap used"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
