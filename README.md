@@ -1,14 +1,16 @@
 # kb7-test-demo
 
-Spring Boot + MySQL 기반으로 두 가지 병목(인덱스 누락 풀 테이블 스캔, 커넥션 풀 고갈)을 의도적으로
-재현하고, k6로 부하를 주면서 Prometheus/Grafana로 관찰 → 원인 파악 → 해결까지 진행하는 데모 프로젝트입니다.
+Spring Boot + MySQL 기반으로 세 가지 병목 상황(인덱스 누락 풀 테이블 스캔, 커넥션 풀 고갈, 그리고
+Redis 캐싱을 통한 완화)을 의도적으로 재현하고, k6로 부하를 주면서 Prometheus/Grafana로 관찰 →
+원인 파악 → 해결까지 진행하는 데모 프로젝트입니다.
 
 ## 구성 요소
 
 | 구성 요소 | 설명 |
 |---|---|
-| Spring Boot App | `localhost:8080`, 병목 재현용 엔드포인트 2개 제공 |
+| Spring Boot App | `localhost:8080`, 병목 재현/해결 엔드포인트 3개 제공 |
 | MySQL | Docker, `localhost:13306`, `orders` 테이블 100만 건 |
+| Redis | Docker, `localhost:16379`, 캐싱 데모용 |
 | Prometheus | Docker, `localhost:9090`, 앱의 `/actuator/prometheus` 스크레이핑 |
 | Grafana | Docker, `localhost:3000`, `kb7 Bottleneck Demo` 대시보드 자동 프로비저닝 |
 | k6 | 로컬 설치, `k6/` 디렉터리의 스크립트로 부하 생성 |
@@ -19,8 +21,9 @@ Spring Boot + MySQL 기반으로 두 가지 병목(인덱스 누락 풀 테이�
 - Docker Desktop (실행 중이어야 함)
 - [k6](https://k6.io) 로컬 설치
 
-> Windows/Hyper-V 환경에서는 일부 포트 대역(예: 3306, 3307)이 예약되어 바인딩이 안 될 수 있습니다.
-> 그래서 이 프로젝트는 MySQL 호스트 포트를 `13306`으로 매핑합니다. 다른 포트도 충돌하면
+> Windows/Hyper-V 환경에서는 일부 포트 대역(예: 3306, 3307)이 예약되어 바인딩이 안 될 수 있고,
+> 로컬에 이미 다른 MySQL/Redis가 떠 있으면 기본 포트가 충돌할 수 있습니다. 그래서 이 프로젝트는
+> MySQL을 `13306`, Redis를 `16379` 호스트 포트로 매핑합니다. 다른 포트도 충돌하면
 > `docker-compose.yml`의 포트와 `application.properties`의 접속 정보를 함께 바꿔주세요.
 
 ## 1. 인프라 기동 (MySQL, Prometheus, Grafana)
@@ -80,6 +83,19 @@ curl "http://localhost:8080/api/orders/slow?seconds=3"
 동시에 풀 크기(5개)를 초과하는 요청을 보내면 뒤로 밀린 요청은 커넥션 대기 후
 `connection-timeout`(3초)을 넘기면 `500 Internal Server Error`가 발생합니다.
 
+### 3-3. Redis 캐싱을 통한 완화
+
+`/api/orders/search`와 동일하게 인덱스 없는 풀 스캔을 쓰지만, 조회 결과를 Redis에 30초간 캐싱합니다.
+"인덱스를 안 고쳐도, 반복 조회되는 인기 데이터라면 캐싱만으로 DB 부하를 크게 줄일 수 있다"는 것을
+보여주는 엔드포인트입니다.
+
+```bash
+curl -i "http://localhost:8080/api/orders/search-cached?email=user1@example.com"
+```
+
+응답 헤더 `X-Cache: MISS|HIT`, `X-Took-Ms`로 캐시 적중 여부와 소요 시간을 바로 확인할 수 있습니다.
+같은 이메일로 다시 요청하면 `HIT`으로 바뀌면서 응답 시간이 수백 ms에서 1ms 내외로 떨어집니다.
+
 ## 4. k6 부하 테스트
 
 ### 4-1. 풀 테이블 스캔 시나리오
@@ -101,7 +117,18 @@ k6 run k6/pool-exhaustion-test.js
 - 0~20초: 5 VU(풀 크기 이내), 20~40초: 15 VU(풀 크기 초과), 이후 감소
 - `status is 500 (pool exhausted)` 체크 비율과 `http_req_duration`이 대기 구간에서 급증하는지 관찰
 
-두 스크립트 모두 `BASE_URL` 환경변수로 대상 서버를 바꿀 수 있습니다.
+### 4-3. Redis 캐싱 히트율 시나리오
+
+```bash
+k6 run k6/cache-hit-test.js
+```
+
+- 20 VU가 30초간, 실제 존재하는 이메일 5개(`user1`~`user5`@example.com)만 무작위로 반복 조회
+- `X-Cache` 헤더를 기준으로 `cache_hit_rate`, `cache_hit_latency_ms`, `cache_miss_latency_ms` 커스텀
+  지표를 집계 — 인덱스가 없어도(3-1과 동일한 풀 스캔 쿼리) 캐시 히트율이 높으면 지연시간이 얼마나
+  줄어드는지 확인 가능
+
+모든 스크립트는 `BASE_URL` 환경변수로 대상 서버를 바꿀 수 있습니다.
 
 ```bash
 BASE_URL=http://localhost:8080 k6 run k6/search-scan-test.js
@@ -137,6 +164,49 @@ ALTER TABLE orders ADD INDEX idx_orders_customer_email (customer_email);
 있습니다.
 
 같은 k6 시나리오로 수정 전/후를 비교하는 것이 이 데모의 핵심입니다.
+
+### 6-3. 캐싱으로 완화 (인덱스를 고치지 않고)
+
+인덱스를 추가하는 게 근본 해결책이지만, "스키마를 못 건드리는 상황"이거나 "조회 패턴이 소수의
+핫 데이터에 몰려있는 경우"의 대안으로 캐싱을 보여줍니다. `k6/cache-hit-test.js`를 실행하면
+인덱스가 없는 상태에서도 첫 요청(MISS) 이후로는 대부분 캐시에서 응답해 지연시간이 크게 줄어드는
+것을 확인할 수 있습니다. 단, 캐싱은 반복되지 않는 임의 조회(예: 3-1의 무작위 이메일 테스트)에는
+효과가 없다는 점도 같이 보여주면 좋습니다 — 캐시 적중률은 트래픽 패턴에 달려 있다는 것이 포인트입니다.
+
+### 6-4. 실측 결과 예시
+
+이 저장소에서 실제로 측정한 수치입니다 (환경에 따라 달라질 수 있습니다).
+
+**풀 테이블 스캔 (`k6 run k6/search-scan-test.js`, 최대 30 VU)**
+
+| 지표 | Before (인덱스 없음) | After (인덱스 추가) |
+|---|---|---|
+| p95 지연시간 | 1.4s | 6.09ms |
+| 평균 지연시간 | 783ms | 3.55ms |
+| 처리량 | 11.6 req/s | 29.6 req/s |
+
+**커넥션 풀 고갈 (`k6 run k6/pool-exhaustion-test.js`, 최대 15 VU)**
+
+| 지표 | Before (풀 크기 5) | After (풀 크기 20) |
+|---|---|---|
+| 500 에러(풀 고갈) 비율 | 약 90% | 0% |
+| http_req_failed | 9.75% | 0.00% |
+| p95 지연시간 | 5.99s (대기 큐 발생) | 3.01s (SLEEP 시간만, 대기 없음) |
+
+**Redis 캐싱 (`k6 run k6/cache-hit-test.js`, 20 VU, 인기 이메일 5개 반복 조회, 인덱스는 없는 상태)**
+
+| 지표 | 캐시 MISS (DB 풀 스캔) | 캐시 HIT |
+|---|---|---|
+| 평균 지연시간 | 958.8ms | 1.16ms |
+| 캐시 적중률 | - | 99.98% |
+
+### 6-5. 현재 저장소 상태
+
+이 README의 예시를 그대로 재현해보고 싶다면 참고하세요. 현재 저장소는 다음 상태로 맞춰져 있습니다.
+
+- 인덱스: 제거됨 (`idx_orders_customer_email` 없음, 3-1/6-3의 풀 스캔 데모 가능)
+- 커넥션 풀: `maximum-pool-size=20` (해결된 상태, 3-2/6-2 데모를 원하면 5로 되돌리고 앱 재시작)
+- Redis 캐싱: 적용됨 (`/api/orders/search-cached`)
 
 ## 7. 정리
 

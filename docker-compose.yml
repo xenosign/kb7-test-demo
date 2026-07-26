@@ -15,6 +15,15 @@ services:
       - ./sql/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ./sql/02-generate-data.sql:/docker-entrypoint-initdb.d/02-generate-data.sql
 
+  redis:
+    image: redis:7
+    container_name: kb7-redis
+    restart: unless-stopped
+    ports:
+      # 로컬에 이미 6379로 떠있는 다른 redis-server(네이티브 Windows 프로세스)와 충돌을 피하기 위해
+      # 호스트 포트를 16379로 매핑한다.
+      - "16379:6379"
+
   prometheus:
     image: prom/prometheus:latest
     container_name: kb7-prometheus
