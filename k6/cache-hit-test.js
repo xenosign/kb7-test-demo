@@ -29,7 +29,11 @@ const HOT_EMAILS = [
 
 export default function () {
   const email = HOT_EMAILS[Math.floor(Math.random() * HOT_EMAILS.length)];
-  const res = http.get(`${BASE_URL}/api/orders/search-cached?email=${email}`);
+  // email은 5개 중 하나로 고정 범위지만, name 태그를 명시해 두면 Prometheus에서
+  // url 대신 하나의 시계열로 집계할 수 있다.
+  const res = http.get(`${BASE_URL}/api/orders/search-cached?email=${email}`, {
+    tags: { name: 'cache-search' },
+  });
 
   const isHit = res.headers['X-Cache'] === 'HIT';
   cacheHitRate.add(isHit);

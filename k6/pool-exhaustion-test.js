@@ -18,7 +18,9 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const SLEEP_SECONDS = __ENV.SLEEP_SECONDS || 3;
 
 export default function () {
-  const res = http.get(`${BASE_URL}/api/orders/slow?seconds=${SLEEP_SECONDS}`);
+  const res = http.get(`${BASE_URL}/api/orders/slow?seconds=${SLEEP_SECONDS}`, {
+    tags: { name: 'slow' },
+  });
 
   check(res, {
     'status is 200': (r) => r.status === 200,

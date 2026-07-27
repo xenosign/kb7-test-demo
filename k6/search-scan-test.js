@@ -21,7 +21,11 @@ export default function () {
   const randomId = Math.floor(Math.random() * 1000000);
   const email = `user${randomId}@example.com`;
 
-  const res = http.get(`${BASE_URL}/api/orders/search?email=${email}`);
+  // email이 매번 달라지므로 name 태그를 고정하지 않으면 Prometheus remote-write 시
+  // 요청마다 별개의 시계열이 생겨 카디널리티가 폭증한다.
+  const res = http.get(`${BASE_URL}/api/orders/search?email=${email}`, {
+    tags: { name: 'search-scan' },
+  });
 
   check(res, {
     'status is 200': (r) => r.status === 200,
