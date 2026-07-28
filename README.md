@@ -134,6 +134,19 @@ k6 run k6/cache-hit-test.js
 BASE_URL=http://localhost:8080 k6 run k6/search-scan-test.js
 ```
 
+### 4-4. 전체 시나리오 순차 실행
+
+세 시나리오를 동시에 돌리면 커넥션 풀/캐시 등 서로의 지표에 간섭하므로, 아래 스크립트로
+하나씩 순서대로(풀 스캔 → 커넥션 풀 고갈 → 캐싱) 실행하고 각 결과를 `k6/results/`에 저장할 수
+있습니다.
+
+```bash
+./k6/run-all-tests.sh
+```
+
+`BASE_URL` 환경변수로 대상 서버를 바꿀 수 있고, 테스트 중 하나라도 threshold를 만족하지
+못하면 스크립트 종료 코드가 1이 되며 마지막에 실패한 테스트 목록을 출력합니다.
+
 ## 5. Grafana에서 관찰
 
 `http://localhost:3000` 접속 (익명 Viewer 접근 허용, 로그인 시 admin/admin) 후

@@ -35,3 +35,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### k6 ###
+k6/results/
