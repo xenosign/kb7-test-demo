@@ -7,3 +7,12 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: true
+
+  - name: InfluxDB-k6
+    uid: influxdb-k6
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    database: k6
+    isDefault: false
+    editable: true

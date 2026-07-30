@@ -1,0 +1,11 @@
+.git
+.gradle
+build/
+out/
+.idea
+.vscode
+*.md
+k6
+monitoring
+sql
+docker-compose.yml
